@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 export default function JioMartCoupon() {
   const [quantity, setQuantity] = useState("")
   const perCodePrice = 24
+  const minQuantity = 10
   const [totalAmount, setTotalAmount] = useState(0)
   const [showPayment, setShowPayment] = useState(false)
   const [showCoupons, setShowCoupons] = useState(false)
@@ -76,6 +77,10 @@ export default function JioMartCoupon() {
   const handlePayment = () => {
     if (paymentData.utrNumber.length >= 12) {
       const qty = Number.parseInt(quantity) || 0
+      if (qty < minQuantity) {
+        alert(`Minimum order quantity is ${minQuantity}`)
+        return
+      }
 
       const availableCoupons = CouponStorage.getAvailableCoupons(qty)
 
@@ -331,16 +336,21 @@ export default function JioMartCoupon() {
                   placeholder="Enter Quantity"
                   value={quantity}
                   onChange={(e) => handleQuantityChange(e.target.value)}
+                  min={minQuantity}
                   className="h-12"
                 />
               </div>
 
               <Button
                 className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
-                disabled={!quantity || (!!availableStock && Number(quantity) > availableStock) || !!stockError}
+                disabled={!quantity || (Number(quantity) < minQuantity) || (!!availableStock && Number(quantity) > availableStock) || !!stockError}
                 onClick={handleBuyNow}
               >
-                {availableStock && Number(quantity) > availableStock ? `Only ${availableStock} in stock` : "BUY NOW"}
+                {Number(quantity) > 0 && Number(quantity) < minQuantity
+                  ? `Minimum ${minQuantity}`
+                  : availableStock && Number(quantity) > availableStock
+                    ? `Only ${availableStock} in stock`
+                    : "BUY NOW"}
               </Button>
             </CardContent>
           </Card>
@@ -372,7 +382,7 @@ export default function JioMartCoupon() {
 
               <Button
                 className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
-                disabled={totalAmount === 0}
+                disabled={totalAmount === 0 || (Number(quantity) < minQuantity)}
                 onClick={handleBuyNow}
               >
                 PAY NOW
