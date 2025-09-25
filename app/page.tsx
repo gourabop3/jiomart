@@ -27,22 +27,35 @@ export default function JioMartCoupon() {
   const [stockError, setStockError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (currentOrderId && showPending) {
-      const checkOrderStatus = () => {
-        const orders = OrderStorage.getAllOrders()
-        const order = orders.find((o) => o.id === currentOrderId)
+    // pick up orderId from URL if present, so refresh works
+    try {
+      const url = new URL(window.location.href)
+      const id = url.searchParams.get("orderId")
+      if (id) {
+        setCurrentOrderId(id)
+        setShowPending(true)
+      }
+    } catch {}
 
-        if (order?.status === "verified" && order.paymentVerified) {
-          setGeneratedCoupons(order.couponCodes)
-          setShowPending(false)
-          setShowCoupons(true)
-        } else if (order?.status === "rejected") {
-          alert("Your payment was rejected. Please contact support or try again with correct payment details.")
-          handleStartOver()
+    if (currentOrderId && showPending) {
+      const checkOrderStatus = async () => {
+        try {
+          const r = await fetch(`/api/orders/${currentOrderId}`, { cache: "no-store" })
+          if (!r.ok) return
+          const order = await r.json()
+          if (order?.status === "verified" && order.paymentVerified) {
+            setGeneratedCoupons(order.couponCodes || [])
+            setShowPending(false)
+            setShowCoupons(true)
+          } else if (order?.status === "rejected") {
+            alert("Your payment was rejected. Please contact support or try again with correct payment details.")
+            handleStartOver()
+          }
+        } catch {
+          // ignore transient errors
         }
       }
-
-      const interval = setInterval(checkOrderStatus, 3000) // Check every 3 seconds
+      const interval = setInterval(checkOrderStatus, 3000)
       return () => clearInterval(interval)
     }
   }, [currentOrderId, showPending])
@@ -92,17 +105,28 @@ export default function JioMartCoupon() {
           return
         }
 
-        const savedOrder = OrderStorage.saveOrder({
-          fullName: paymentData.fullName,
-          email: paymentData.email,
-          utrNumber: paymentData.utrNumber,
-          quantity: qty,
-          totalAmount: totalAmount,
-          couponCodes: availableCoupons,
-          paymentProof: paymentData.paymentProof?.name,
+        // Create order in DB
+        const createRes = await fetch("/api/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fullName: paymentData.fullName,
+            email: paymentData.email,
+            utrNumber: paymentData.utrNumber,
+            quantity: qty,
+            totalAmount: totalAmount,
+            couponCodes: availableCoupons,
+            paymentProof: paymentData.paymentProof?.name,
+          }),
         })
-
-        setCurrentOrderId(savedOrder.id)
+        const created = await createRes.json()
+        const newId = String(created.id)
+        setCurrentOrderId(newId)
+        try {
+          const url = new URL(window.location.href)
+          url.searchParams.set("orderId", newId)
+          window.history.replaceState(null, "", url.toString())
+        } catch {}
         setShowPayment(false)
         setShowPending(true)
       } catch {

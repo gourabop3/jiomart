@@ -41,10 +41,33 @@ export default function AdminPage() {
   }, [])
 
   const loadData = () => {
-    const allOrders = OrderStorage.getAllOrders()
-    const orderStats = OrderStorage.getOrderStats()
-    setOrders(allOrders.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()))
-    setStats(orderStats)
+    fetch("/api/orders")
+      .then((r) => r.json())
+      .then((items) => {
+        const mapped: Order[] = items.map((o: any) => ({
+          id: String(o.id),
+          fullName: String(o.fullName),
+          email: String(o.email),
+          utrNumber: String(o.utrNumber),
+          quantity: Number(o.quantity),
+          totalAmount: Number(o.totalAmount),
+          couponCodes: Array.isArray(o.couponCodes) ? o.couponCodes : [],
+          paymentProof: o.paymentProof ? String(o.paymentProof) : undefined,
+          timestamp: new Date(o.timestamp),
+          paymentVerified: Boolean(o.paymentVerified),
+          status: o.status,
+        }))
+        setOrders(mapped)
+        const statsComputed = {
+          total: mapped.length,
+          pending: mapped.filter((o) => o.status === "pending").length,
+          verified: mapped.filter((o) => o.status === "verified").length,
+          rejected: mapped.filter((o) => o.status === "rejected").length,
+          totalRevenue: mapped.filter((o) => o.paymentVerified).reduce((sum, o) => sum + o.totalAmount, 0),
+          totalCoupons: mapped.reduce((sum, o) => sum + o.quantity, 0),
+        }
+        setStats(statsComputed)
+      })
 
     fetch("/api/coupons")
       .then((r) => r.json())
@@ -88,30 +111,30 @@ export default function AdminPage() {
     setSelectedOrder(null)
   }
 
-  const verifyPayment = (orderId: string) => {
+  const verifyPayment = async (orderId: string) => {
     const order = orders.find((o) => o.id === orderId)
     if (order) {
-      fetch("/api/coupons/mark-used", {
+      await fetch("/api/coupons/mark-used", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ codes: order.couponCodes, orderId }),
       })
+      await fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "verified", paymentVerified: true }),
+      })
     }
-    OrderStorage.updateOrderStatus(orderId, "verified", true)
     loadData()
-    if (selectedOrder && selectedOrder.id === orderId) {
-      const updatedOrder = OrderStorage.getAllOrders().find((o) => o.id === orderId)
-      if (updatedOrder) setSelectedOrder(updatedOrder)
-    }
   }
 
-  const rejectPayment = (orderId: string) => {
-    OrderStorage.updateOrderStatus(orderId, "rejected", false)
+  const rejectPayment = async (orderId: string) => {
+    await fetch(`/api/orders/${orderId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "rejected", paymentVerified: false }),
+    })
     loadData()
-    if (selectedOrder && selectedOrder.id === orderId) {
-      const updatedOrder = OrderStorage.getAllOrders().find((o) => o.id === orderId)
-      if (updatedOrder) setSelectedOrder(updatedOrder)
-    }
   }
 
   const handleAddCoupons = () => {
