@@ -44,7 +44,13 @@ export default function JioMartCoupon() {
           if (!r.ok) return
           const order = await r.json()
           if (order?.status === "verified" && order.paymentVerified) {
-            setGeneratedCoupons(order.couponCodes || [])
+            try {
+              const r2 = await fetch(`/api/coupons/by-order/${currentOrderId}`, { cache: "no-store" })
+              const d2 = await r2.json()
+              setGeneratedCoupons(Array.isArray(d2?.codes) ? d2.codes : order.couponCodes || [])
+            } catch {
+              setGeneratedCoupons(order.couponCodes || [])
+            }
             setShowPending(false)
             setShowCoupons(true)
           } else if (order?.status === "rejected") {
