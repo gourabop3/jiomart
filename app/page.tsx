@@ -23,6 +23,7 @@ export default function JioMartCoupon() {
     paymentProof: null as File | null,
   })
   const [availableStock, setAvailableStock] = useState(0)
+  const [stockError, setStockError] = useState<string | null>(null)
 
   useEffect(() => {
     if (currentOrderId && showPending) {
@@ -51,8 +52,9 @@ export default function JioMartCoupon() {
         const r = await fetch("/api/coupons/stats", { cache: "no-store" })
         const s = await r.json()
         setAvailableStock(s.available || 0)
+        setStockError(null)
       } catch {
-        // ignore
+        setStockError("Stock unavailable")
       }
     }
     updateStock()
@@ -318,7 +320,9 @@ export default function JioMartCoupon() {
                   <span className="font-semibold text-gray-800">101 pe 100 off - ₹24</span>
                 </div>
                 <p className="text-sm text-gray-600">Get ₹100 off with coupon codes ending in 101</p>
-                <p className="text-sm text-gray-600">Stock Available: {availableStock}</p>
+                <p className="text-sm text-gray-600">
+                  {stockError ? stockError : `Stock Available: ${availableStock}`}
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -333,10 +337,10 @@ export default function JioMartCoupon() {
 
               <Button
                 className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
-                disabled={!quantity}
+                disabled={!quantity || (!!availableStock && Number(quantity) > availableStock) || !!stockError}
                 onClick={handleBuyNow}
               >
-                BUY NOW
+                {availableStock && Number(quantity) > availableStock ? `Only ${availableStock} in stock` : "BUY NOW"}
               </Button>
             </CardContent>
           </Card>
