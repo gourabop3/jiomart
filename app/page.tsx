@@ -393,24 +393,27 @@ export default function JioMartCoupon() {
 
         <Card className="mt-8 shadow-lg">
           <CardContent className="p-8">
-            <h2 className="text-2xl font-bold text-center mb-6 text-card-foreground">Disclaimer</h2>
+            <h2 className="text-2xl font-bold text-center mb-6 text-card-foreground">Important Information</h2>
             <div className="space-y-4 text-card-foreground">
               <p className="text-lg">
-                <span className="font-semibold">1.</span> No Refund, No Replacement. If you are buying, you should
-                follow these rules.
+                <span className="font-semibold">1.</span> Minimum order quantity is 10 coupon codes. Orders below this
+                limit are not accepted.
               </p>
               <p className="text-lg">
-                <span className="font-semibold">2.</span> Delivery Within 1 hour In Your Gmail
+                <span className="font-semibold">2.</span> Delivery to your email typically within 1 hour after payment
+                verification. Please ensure your email is correct.
               </p>
               <p className="text-lg">
-                <span className="font-semibold">3.</span> If The Offer Ends Suddenly, We Are Not Responsible. Please
-                Order At Your Own Risk.
+                <span className="font-semibold">3.</span> Coupon validity and acceptance depend on JioMart policy.
+                Offers may change or end without notice.
               </p>
               <p className="text-lg">
-                <span className="font-semibold">4.</span> Join Our channel -{" "}
-                <a href="#" className="text-blue-600 hover:underline">
-                  Lemix Panel
-                </a>
+                <span className="font-semibold">4.</span> Stock is limited. If requested quantity exceeds available
+                stock, adjust your order accordingly.
+              </p>
+              <p className="text-lg">
+                <span className="font-semibold">5.</span> All sales are final. No refund or replacement once coupon
+                codes are delivered and marked used.
               </p>
             </div>
           </CardContent>
