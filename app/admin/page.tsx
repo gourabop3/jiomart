@@ -264,7 +264,7 @@ export default function AdminPage() {
                 {selectedOrder.couponCodes.map((coupon, index) => (
                   <div key={index} className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
                     <div className="font-mono text-lg font-bold text-blue-800">{coupon}</div>
-                    <p className="text-sm text-blue-600 mt-1">₹50 off - JIO Mart</p>
+                    <p className="text-sm text-blue-600 mt-1">₹100 off - JIO Mart</p>
                   </div>
                 ))}
               </div>

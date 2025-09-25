@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 
 export default function JioMartCoupon() {
   const [quantity, setQuantity] = useState("")
-  const perCodePrice = 15
+  const perCodePrice = 24
   const [totalAmount, setTotalAmount] = useState(0)
   const [showPayment, setShowPayment] = useState(false)
   const [showCoupons, setShowCoupons] = useState(false)
@@ -22,6 +22,7 @@ export default function JioMartCoupon() {
     utrNumber: "",
     paymentProof: null as File | null,
   })
+  const [availableStock, setAvailableStock] = useState(0)
 
   useEffect(() => {
     if (currentOrderId && showPending) {
@@ -43,6 +44,16 @@ export default function JioMartCoupon() {
       return () => clearInterval(interval)
     }
   }, [currentOrderId, showPending])
+
+  useEffect(() => {
+    const updateStock = () => {
+      const stats = CouponStorage.getCouponStats()
+      setAvailableStock(stats.available)
+    }
+    updateStock()
+    const interval = setInterval(updateStock, 3000)
+    return () => clearInterval(interval)
+  }, [])
 
   const handleQuantityChange = (value: string) => {
     setQuantity(value)
@@ -158,7 +169,7 @@ export default function JioMartCoupon() {
               <div className="text-center space-y-4">
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                   <h3 className="text-lg font-semibold text-green-800 mb-2">Order Summary</h3>
-                  <p className="text-green-700">Coupon Type:51 pe 50 off - ₹15</p>
+                  <p className="text-green-700">Coupon Type:101 pe 100 off - ₹24</p>
                   <p className="text-green-700">Quantity: {quantity}</p>
                   <p className="text-green-700">Total Paid: ₹{totalAmount}</p>
                 </div>
@@ -183,7 +194,7 @@ export default function JioMartCoupon() {
                         #{index + 1}
                       </div>
                       <div className="font-mono text-xl font-bold text-blue-800 mb-2">{coupon}</div>
-                      <p className="text-sm text-blue-600">₹50 off - Valid for JIO Mart purchases</p>
+                      <p className="text-sm text-blue-600">₹100 off - Valid for JIO Mart purchases</p>
                       <div className="mt-2 text-xs text-gray-500">Tap to copy code</div>
                     </div>
                   ))}
@@ -299,9 +310,10 @@ export default function JioMartCoupon() {
             <CardContent className="space-y-6">
               <div className="space-y-2">
                 <div className="h-12 bg-white border border-gray-300 rounded-md flex items-center px-3">
-                  <span className="font-semibold text-gray-800">51 pe 50 off - ₹15</span>
+                  <span className="font-semibold text-gray-800">101 pe 100 off - ₹24</span>
                 </div>
-                <p className="text-sm text-gray-600">Get ₹50 off with coupon codes ending in 51</p>
+                <p className="text-sm text-gray-600">Get ₹100 off with coupon codes ending in 101</p>
+                <p className="text-sm text-gray-600">Stock Available: {availableStock}</p>
               </div>
 
               <div className="space-y-2">
