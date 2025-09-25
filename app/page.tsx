@@ -74,7 +74,7 @@ export default function JioMartCoupon() {
     setShowPayment(true)
   }
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     if (paymentData.utrNumber.length >= 12) {
       const qty = Number.parseInt(quantity) || 0
       if (qty < minQuantity) {
@@ -82,26 +82,32 @@ export default function JioMartCoupon() {
         return
       }
 
-      const availableCoupons = CouponStorage.getAvailableCoupons(qty)
+      try {
+        const res = await fetch(`/api/coupons/available?count=${qty}`, { cache: "no-store" })
+        const data = await res.json()
+        const availableCoupons: string[] = Array.isArray(data?.codes) ? data.codes : []
 
-      if (availableCoupons.length < qty) {
-        alert(`Sorry, only ${availableCoupons.length} coupons are available. Please contact admin to add more coupons.`)
-        return
+        if (availableCoupons.length < qty) {
+          alert(`Sorry, only ${availableCoupons.length} coupons are available. Please contact admin to add more coupons.`)
+          return
+        }
+
+        const savedOrder = OrderStorage.saveOrder({
+          fullName: paymentData.fullName,
+          email: paymentData.email,
+          utrNumber: paymentData.utrNumber,
+          quantity: qty,
+          totalAmount: totalAmount,
+          couponCodes: availableCoupons,
+          paymentProof: paymentData.paymentProof?.name,
+        })
+
+        setCurrentOrderId(savedOrder.id)
+        setShowPayment(false)
+        setShowPending(true)
+      } catch {
+        alert("Unable to check coupon availability. Please try again.")
       }
-
-      const savedOrder = OrderStorage.saveOrder({
-        fullName: paymentData.fullName,
-        email: paymentData.email,
-        utrNumber: paymentData.utrNumber,
-        quantity: qty,
-        totalAmount: totalAmount,
-        couponCodes: availableCoupons,
-        paymentProof: paymentData.paymentProof?.name,
-      })
-
-      setCurrentOrderId(savedOrder.id)
-      setShowPayment(false)
-      setShowPending(true)
     }
   }
 
