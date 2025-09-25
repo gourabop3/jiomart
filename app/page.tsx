@@ -22,6 +22,7 @@ export default function JioMartCoupon() {
     utrNumber: "",
     paymentProof: null as File | null,
   })
+  const [availableStock, setAvailableStock] = useState(0)
 
   useEffect(() => {
     if (currentOrderId && showPending) {
@@ -43,6 +44,16 @@ export default function JioMartCoupon() {
       return () => clearInterval(interval)
     }
   }, [currentOrderId, showPending])
+
+  useEffect(() => {
+    const updateStock = () => {
+      const stats = CouponStorage.getCouponStats()
+      setAvailableStock(stats.available)
+    }
+    updateStock()
+    const interval = setInterval(updateStock, 3000)
+    return () => clearInterval(interval)
+  }, [])
 
   const handleQuantityChange = (value: string) => {
     setQuantity(value)
@@ -302,6 +313,7 @@ export default function JioMartCoupon() {
                   <span className="font-semibold text-gray-800">101 pe 100 off - ₹24</span>
                 </div>
                 <p className="text-sm text-gray-600">Get ₹100 off with coupon codes ending in 101</p>
+                <p className="text-sm text-gray-600">Stock Available: {availableStock}</p>
               </div>
 
               <div className="space-y-2">
