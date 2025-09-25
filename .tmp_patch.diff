@@ -1,0 +1,620 @@
+diff --git a/app/admin/page.tsx b/app/admin/page.tsx
+index 0dc18c4b..1298198f 100644
+--- a/app/admin/page.tsx
++++ b/app/admin/page.tsx
+@@ -43,13 +43,25 @@ export default function AdminPage() {
+   const loadData = () => {
+     const allOrders = OrderStorage.getAllOrders()
+     const orderStats = OrderStorage.getOrderStats()
+-    const allCoupons = CouponStorage.getAllCoupons()
+-    const couponStatistics = CouponStorage.getCouponStats()
+-
+     setOrders(allOrders.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()))
+     setStats(orderStats)
+-    setCoupons(allCoupons.sort((a, b) => b.addedAt.getTime() - a.addedAt.getTime()))
+-    setCouponStats(couponStatistics)
++
++    fetch("/api/coupons")
++      .then((r) => r.json())
++      .then((items) => {
++        const mapped: CouponInventory[] = items.map((d: any) => ({
++          id: d.id,
++          code: d.code,
++          isUsed: d.isUsed,
++          addedAt: new Date(d.addedAt),
++          usedAt: d.usedAt ? new Date(d.usedAt) : undefined,
++          orderId: d.orderId,
++        }))
++        setCoupons(mapped)
++      })
++    fetch("/api/coupons/stats")
++      .then((r) => r.json())
++      .then((s) => setCouponStats({ total: s.total || 0, available: s.available || 0, used: s.used || 0 }))
+   }
+ 
+   const handleLogin = (e: React.FormEvent) => {
+@@ -79,7 +91,11 @@ export default function AdminPage() {
+   const verifyPayment = (orderId: string) => {
+     const order = orders.find((o) => o.id === orderId)
+     if (order) {
+-      CouponStorage.markCouponsAsUsed(order.couponCodes, orderId)
++      fetch("/api/coupons/mark-used", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ codes: order.couponCodes, orderId }),
++      })
+     }
+     OrderStorage.updateOrderStatus(orderId, "verified", true)
+     loadData()
+@@ -107,15 +123,19 @@ export default function AdminPage() {
+       .filter((code) => code.length > 0)
+ 
+     if (couponCodes.length > 0) {
+-      CouponStorage.addCoupons(couponCodes)
+-      setNewCoupons("")
+-      loadData()
++      fetch("/api/coupons", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ codes: couponCodes }),
++      }).then(() => {
++        setNewCoupons("")
++        loadData()
++      })
+     }
+   }
+ 
+   const deleteCoupon = (couponId: string) => {
+-    CouponStorage.deleteCoupon(couponId)
+-    loadData()
++    fetch(`/api/coupons/${couponId}`, { method: "DELETE" }).then(() => loadData())
+   }
+ 
+   if (!isAuthenticated) {
+@@ -264,7 +284,7 @@ export default function AdminPage() {
+                 {selectedOrder.couponCodes.map((coupon, index) => (
+                   <div key={index} className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+                     <div className="font-mono text-lg font-bold text-blue-800">{coupon}</div>
+-                    <p className="text-sm text-blue-600 mt-1">₹50 off - JIO Mart</p>
++                    <p className="text-sm text-blue-600 mt-1">₹100 off - JIO Mart</p>
+                   </div>
+                 ))}
+               </div>
+diff --git a/app/api/coupons/[id]/route.ts b/app/api/coupons/[id]/route.ts
+new file mode 100644
+index 00000000..c86ba2f5
+--- /dev/null
++++ b/app/api/coupons/[id]/route.ts
+@@ -0,0 +1,19 @@
++import { NextResponse } from "next/server"
++import { getDb, type CouponDoc } from "@/lib/mongodb"
++import { ObjectId } from "mongodb"
++
++export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
++  try {
++    const { id } = params
++    const db = await getDb()
++    const col = db.collection<CouponDoc>("coupons")
++    const res = await col.deleteOne({ _id: new ObjectId(id), isUsed: false } as any)
++    if (res.deletedCount === 0) {
++      return NextResponse.json({ error: "Not found or already used" }, { status: 404 })
++    }
++    return NextResponse.json({ ok: true })
++  } catch (e: any) {
++    return NextResponse.json({ error: e.message || "Failed to delete coupon" }, { status: 500 })
++  }
++}
++
+diff --git a/app/api/coupons/available/route.ts b/app/api/coupons/available/route.ts
+new file mode 100644
+index 00000000..4f3b02fd
+--- /dev/null
++++ b/app/api/coupons/available/route.ts
+@@ -0,0 +1,22 @@
++import { NextResponse } from "next/server"
++import { getDb, type CouponDoc } from "@/lib/mongodb"
++
++export async function GET(req: Request) {
++  try {
++    const url = new URL(req.url)
++    const count = Math.max(0, Math.min(200, Number(url.searchParams.get("count")) || 0))
++    const db = await getDb()
++    const col = db.collection<CouponDoc>("coupons")
++    const docs = await col
++      .find({ isUsed: false })
++      .sort({ addedAt: -1 })
++      .limit(count)
++      .project({ code: 1 })
++      .toArray()
++    const codes = docs.map((d: any) => d.code)
++    return NextResponse.json({ codes })
++  } catch (e: any) {
++    return NextResponse.json({ error: e.message || "Failed to get available coupons" }, { status: 500 })
++  }
++}
++
+diff --git a/app/api/coupons/mark-used/route.ts b/app/api/coupons/mark-used/route.ts
+new file mode 100644
+index 00000000..a26ce4eb
+--- /dev/null
++++ b/app/api/coupons/mark-used/route.ts
+@@ -0,0 +1,25 @@
++import { NextResponse } from "next/server"
++import { getDb, type CouponDoc } from "@/lib/mongodb"
++
++export async function POST(req: Request) {
++  try {
++    const body = await req.json()
++    const codes: string[] = Array.isArray(body?.codes) ? body.codes : []
++    const orderId: string | undefined = body?.orderId ? String(body.orderId) : undefined
++    if (!codes.length) {
++      return NextResponse.json({ error: "codes[] required" }, { status: 400 })
++    }
++
++    const db = await getDb()
++    const col = db.collection<CouponDoc>("coupons")
++    const res = await col.updateMany(
++      { code: { $in: codes }, isUsed: false },
++      { $set: { isUsed: true, orderId, usedAt: new Date() } }
++    )
++
++    return NextResponse.json({ matched: res.matchedCount, updated: res.modifiedCount })
++  } catch (e: any) {
++    return NextResponse.json({ error: e.message || "Failed to mark used" }, { status: 500 })
++  }
++}
++
+diff --git a/app/api/coupons/route.ts b/app/api/coupons/route.ts
+new file mode 100644
+index 00000000..deb055fb
+--- /dev/null
++++ b/app/api/coupons/route.ts
+@@ -0,0 +1,57 @@
++import { NextResponse } from "next/server"
++import { getDb, type CouponDoc } from "@/lib/mongodb"
++
++export async function GET() {
++  try {
++    const db = await getDb()
++    const col = db.collection<CouponDoc>("coupons")
++    const docs = await col.find({}, { projection: { } }).sort({ addedAt: -1 }).toArray()
++    const items = docs.map((d) => ({
++      id: d._id?.toString(),
++      code: d.code,
++      isUsed: d.isUsed,
++      addedAt: d.addedAt,
++      usedAt: d.usedAt,
++      orderId: d.orderId,
++    }))
++    return NextResponse.json(items)
++  } catch (e: any) {
++    return NextResponse.json({ error: e.message || "Failed to list coupons" }, { status: 500 })
++  }
++}
++
++export async function POST(req: Request) {
++  try {
++    const body = await req.json()
++    const codes: string[] = Array.isArray(body?.codes) ? body.codes : []
++    if (!codes.length) {
++      return NextResponse.json({ error: "codes[] required" }, { status: 400 })
++    }
++
++    const now = new Date()
++    const docs: CouponDoc[] = codes.map((code) => ({ code: String(code).trim(), isUsed: false, addedAt: now }))
++
++    const db = await getDb()
++    const col = db.collection<CouponDoc>("coupons")
++    await col.createIndex({ code: 1 }, { unique: true })
++
++    const res = await col.insertMany(docs, { ordered: false })
++    const inserted = await col
++      .find({ _id: { $in: Object.values(res.insertedIds) } })
++      .sort({ addedAt: -1 })
++      .toArray()
++
++    const items = inserted.map((d) => ({
++      id: d._id?.toString(),
++      code: d.code,
++      isUsed: d.isUsed,
++      addedAt: d.addedAt,
++      usedAt: d.usedAt,
++      orderId: d.orderId,
++    }))
++    return NextResponse.json(items, { status: 201 })
++  } catch (e: any) {
++    return NextResponse.json({ error: e.message || "Failed to add coupons" }, { status: 500 })
++  }
++}
++
+diff --git a/app/api/coupons/stats/route.ts b/app/api/coupons/stats/route.ts
+new file mode 100644
+index 00000000..024ea91c
+--- /dev/null
++++ b/app/api/coupons/stats/route.ts
+@@ -0,0 +1,16 @@
++import { NextResponse } from "next/server"
++import { getDb, type CouponDoc } from "@/lib/mongodb"
++
++export async function GET() {
++  try {
++    const db = await getDb()
++    const col = db.collection<CouponDoc>("coupons")
++    const total = await col.countDocuments({})
++    const used = await col.countDocuments({ isUsed: true })
++    const available = await col.countDocuments({ isUsed: false })
++    return NextResponse.json({ total, available, used })
++  } catch (e: any) {
++    return NextResponse.json({ error: e.message || "Failed to get stats" }, { status: 500 })
++  }
++}
++
+diff --git a/app/page.tsx b/app/page.tsx
+index 60ebbabd..808a267d 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
+ 
+ export default function JioMartCoupon() {
+   const [quantity, setQuantity] = useState("")
+-  const perCodePrice = 15
++  const perCodePrice = 24
+   const [totalAmount, setTotalAmount] = useState(0)
+   const [showPayment, setShowPayment] = useState(false)
+   const [showCoupons, setShowCoupons] = useState(false)
+@@ -22,6 +22,7 @@ export default function JioMartCoupon() {
+     utrNumber: "",
+     paymentProof: null as File | null,
+   })
++  const [availableStock, setAvailableStock] = useState(0)
+ 
+   useEffect(() => {
+     if (currentOrderId && showPending) {
+@@ -44,6 +45,21 @@ export default function JioMartCoupon() {
+     }
+   }, [currentOrderId, showPending])
+ 
++  useEffect(() => {
++    const updateStock = async () => {
++      try {
++        const r = await fetch("/api/coupons/stats", { cache: "no-store" })
++        const s = await r.json()
++        setAvailableStock(s.available || 0)
++      } catch {
++        // ignore
++      }
++    }
++    updateStock()
++    const interval = setInterval(updateStock, 3000)
++    return () => clearInterval(interval)
++  }, [])
++
+   const handleQuantityChange = (value: string) => {
+     setQuantity(value)
+     const qty = Number.parseInt(value) || 0
+@@ -158,7 +174,7 @@ export default function JioMartCoupon() {
+               <div className="text-center space-y-4">
+                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                   <h3 className="text-lg font-semibold text-green-800 mb-2">Order Summary</h3>
+-                  <p className="text-green-700">Coupon Type:51 pe 50 off - ₹15</p>
++                  <p className="text-green-700">Coupon Type:101 pe 100 off - ₹24</p>
+                   <p className="text-green-700">Quantity: {quantity}</p>
+                   <p className="text-green-700">Total Paid: ₹{totalAmount}</p>
+                 </div>
+@@ -183,7 +199,7 @@ export default function JioMartCoupon() {
+                         #{index + 1}
+                       </div>
+                       <div className="font-mono text-xl font-bold text-blue-800 mb-2">{coupon}</div>
+-                      <p className="text-sm text-blue-600">₹50 off - Valid for JIO Mart purchases</p>
++                      <p className="text-sm text-blue-600">₹100 off - Valid for JIO Mart purchases</p>
+                       <div className="mt-2 text-xs text-gray-500">Tap to copy code</div>
+                     </div>
+                   ))}
+@@ -299,9 +315,10 @@ export default function JioMartCoupon() {
+             <CardContent className="space-y-6">
+               <div className="space-y-2">
+                 <div className="h-12 bg-white border border-gray-300 rounded-md flex items-center px-3">
+-                  <span className="font-semibold text-gray-800">51 pe 50 off - ₹15</span>
++                  <span className="font-semibold text-gray-800">101 pe 100 off - ₹24</span>
+                 </div>
+-                <p className="text-sm text-gray-600">Get ₹50 off with coupon codes ending in 51</p>
++                <p className="text-sm text-gray-600">Get ₹100 off with coupon codes ending in 101</p>
++                <p className="text-sm text-gray-600">Stock Available: {availableStock}</p>
+               </div>
+ 
+               <div className="space-y-2">
+diff --git a/lib/mongodb.ts b/lib/mongodb.ts
+new file mode 100644
+index 00000000..9d228d45
+--- /dev/null
++++ b/lib/mongodb.ts
+@@ -0,0 +1,48 @@
++import { MongoClient, ServerApiVersion } from "mongodb"
++
++const uri = process.env.MONGODB_URI || ""
++const dbName = process.env.MONGODB_DB || ""
++
++if (!uri) {
++  console.warn("MONGODB_URI is not set. API routes depending on MongoDB will fail.")
++}
++
++if (!dbName) {
++  console.warn("MONGODB_DB is not set. API routes depending on MongoDB will fail.")
++}
++
++declare global {
++  // eslint-disable-next-line no-var
++  var _mongoClientPromise: Promise<MongoClient> | undefined
++}
++
++let client: MongoClient
++let clientPromise: Promise<MongoClient>
++
++if (!global._mongoClientPromise) {
++  client = new MongoClient(uri, {
++    serverApi: {
++      version: ServerApiVersion.v1,
++      strict: true,
++      deprecationErrors: true,
++    },
++  })
++  global._mongoClientPromise = client.connect()
++}
++
++clientPromise = global._mongoClientPromise!
++
++export async function getDb() {
++  const cli = await clientPromise
++  return cli.db(dbName)
++}
++
++export type CouponDoc = {
++  _id?: any
++  code: string
++  isUsed: boolean
++  addedAt: Date
++  usedAt?: Date
++  orderId?: string
++}
++
+diff --git a/package-lock.json b/package-lock.json
+index 4d15338d..cde4edcb 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -46,6 +46,7 @@
+         "geist": "^1.3.1",
+         "input-otp": "1.4.1",
+         "lucide-react": "^0.454.0",
++        "mongodb": "^6.20.0",
+         "next": "14.2.16",
+         "next-themes": "^0.4.6",
+         "react": "^18",
+@@ -209,6 +210,15 @@
+         "@jridgewell/sourcemap-codec": "^1.4.14"
+       }
+     },
++    "node_modules/@mongodb-js/saslprep": {
++      "version": "1.3.0",
++      "resolved": "https://registry.npmjs.org/@mongodb-js/saslprep/-/saslprep-1.3.0.tgz",
++      "integrity": "sha512-zlayKCsIjYb7/IdfqxorK5+xUMyi4vOKcFy10wKJYc63NSdKI8mNME+uJqfatkPmOSMMUiojrL58IePKBm3gvQ==",
++      "license": "MIT",
++      "dependencies": {
++        "sparse-bitfield": "^3.0.3"
++      }
++    },
+     "node_modules/@next/env": {
+       "version": "14.2.16",
+       "resolved": "https://registry.npmjs.org/@next/env/-/env-14.2.16.tgz",
+@@ -2068,6 +2078,21 @@
+         "@types/react": "^18.0.0"
+       }
+     },
++    "node_modules/@types/webidl-conversions": {
++      "version": "7.0.3",
++      "resolved": "https://registry.npmjs.org/@types/webidl-conversions/-/webidl-conversions-7.0.3.tgz",
++      "integrity": "sha512-CiJJvcRtIgzadHCYXw7dqEnMNRjhGZlYK05Mj9OyktqV8uVT8fD2BFOB7S1uwBE3Kj2Z+4UyPmFw/Ixgw/LAlA==",
++      "license": "MIT"
++    },
++    "node_modules/@types/whatwg-url": {
++      "version": "11.0.5",
++      "resolved": "https://registry.npmjs.org/@types/whatwg-url/-/whatwg-url-11.0.5.tgz",
++      "integrity": "sha512-coYR071JRaHa+xoEvvYqvnIHaVqaYrLPbsufM9BF63HkwI5Lgmy2QR8Q5K/lYDYo5AK82wOvSOS0UsLTpTG7uQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/webidl-conversions": "*"
++      }
++    },
+     "node_modules/@vercel/analytics": {
+       "version": "1.3.1",
+       "resolved": "https://registry.npmjs.org/@vercel/analytics/-/analytics-1.3.1.tgz",
+@@ -2180,6 +2205,15 @@
+         "node": "^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7"
+       }
+     },
++    "node_modules/bson": {
++      "version": "6.10.4",
++      "resolved": "https://registry.npmjs.org/bson/-/bson-6.10.4.tgz",
++      "integrity": "sha512-WIsKqkSC0ABoBJuT1LEX+2HEvNmNKKgnTAyd0fL8qzK4SH2i9NXg+t08YtdZp/V9IZ33cxe3iV4yM0qg8lMQng==",
++      "license": "Apache-2.0",
++      "engines": {
++        "node": ">=16.20.1"
++      }
++    },
+     "node_modules/busboy": {
+       "version": "1.6.0",
+       "resolved": "https://registry.npmjs.org/busboy/-/busboy-1.6.0.tgz",
+@@ -2859,6 +2893,12 @@
+         "@jridgewell/sourcemap-codec": "^1.5.5"
+       }
+     },
++    "node_modules/memory-pager": {
++      "version": "1.5.0",
++      "resolved": "https://registry.npmjs.org/memory-pager/-/memory-pager-1.5.0.tgz",
++      "integrity": "sha512-ZS4Bp4r/Zoeq6+NLJpP+0Zzm0pR8whtGPf1XExKLJBAczGMnSi3It14OiNCStjQjM6NU1okjQGSxgEZN8eBYKg==",
++      "license": "MIT"
++    },
+     "node_modules/minipass": {
+       "version": "7.1.2",
+       "resolved": "https://registry.npmjs.org/minipass/-/minipass-7.1.2.tgz",
+@@ -2882,6 +2922,62 @@
+         "node": ">= 18"
+       }
+     },
++    "node_modules/mongodb": {
++      "version": "6.20.0",
++      "resolved": "https://registry.npmjs.org/mongodb/-/mongodb-6.20.0.tgz",
++      "integrity": "sha512-Tl6MEIU3K4Rq3TSHd+sZQqRBoGlFsOgNrH5ltAcFBV62Re3Fd+FcaVf8uSEQFOJ51SDowDVttBTONMfoYWrWlQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@mongodb-js/saslprep": "^1.3.0",
++        "bson": "^6.10.4",
++        "mongodb-connection-string-url": "^3.0.2"
++      },
++      "engines": {
++        "node": ">=16.20.1"
++      },
++      "peerDependencies": {
++        "@aws-sdk/credential-providers": "^3.188.0",
++        "@mongodb-js/zstd": "^1.1.0 || ^2.0.0",
++        "gcp-metadata": "^5.2.0",
++        "kerberos": "^2.0.1",
++        "mongodb-client-encryption": ">=6.0.0 <7",
++        "snappy": "^7.3.2",
++        "socks": "^2.7.1"
++      },
++      "peerDependenciesMeta": {
++        "@aws-sdk/credential-providers": {
++          "optional": true
++        },
++        "@mongodb-js/zstd": {
++          "optional": true
++        },
++        "gcp-metadata": {
++          "optional": true
++        },
++        "kerberos": {
++          "optional": true
++        },
++        "mongodb-client-encryption": {
++          "optional": true
++        },
++        "snappy": {
++          "optional": true
++        },
++        "socks": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/mongodb-connection-string-url": {
++      "version": "3.0.2",
++      "resolved": "https://registry.npmjs.org/mongodb-connection-string-url/-/mongodb-connection-string-url-3.0.2.tgz",
++      "integrity": "sha512-rMO7CGo/9BFwyZABcKAWL8UJwH/Kc2x0g72uhDWzG48URRax5TCIcJ7Rc3RZqffZzO/Gwff/jyKwCU9TN8gehA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@types/whatwg-url": "^11.0.2",
++        "whatwg-url": "^14.1.0 || ^13.0.0"
++      }
++    },
+     "node_modules/nanoid": {
+       "version": "3.3.11",
+       "resolved": "https://registry.npmjs.org/nanoid/-/nanoid-3.3.11.tgz",
+@@ -3069,6 +3165,15 @@
+       "integrity": "sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==",
+       "license": "MIT"
+     },
++    "node_modules/punycode": {
++      "version": "2.3.1",
++      "resolved": "https://registry.npmjs.org/punycode/-/punycode-2.3.1.tgz",
++      "integrity": "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=6"
++      }
++    },
+     "node_modules/react": {
+       "version": "18.3.1",
+       "resolved": "https://registry.npmjs.org/react/-/react-18.3.1.tgz",
+@@ -3313,6 +3418,15 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/sparse-bitfield": {
++      "version": "3.0.3",
++      "resolved": "https://registry.npmjs.org/sparse-bitfield/-/sparse-bitfield-3.0.3.tgz",
++      "integrity": "sha512-kvzhi7vqKTfkh0PZU+2D2PIllw2ymqJKujUcyPMd9Y75Nv4nPbGJZXNhxsgdQab2BmlDct1YnfQCguEvHr7VsQ==",
++      "license": "MIT",
++      "dependencies": {
++        "memory-pager": "^1.0.2"
++      }
++    },
+     "node_modules/streamsearch": {
+       "version": "1.1.0",
+       "resolved": "https://registry.npmjs.org/streamsearch/-/streamsearch-1.1.0.tgz",
+@@ -3406,6 +3520,18 @@
+       "integrity": "sha512-+FbBPE1o9QAYvviau/qC5SE3caw21q3xkvWKBtja5vgqOWIHHJ3ioaq1VPfn/Szqctz2bU/oYeKd9/z5BL+PVg==",
+       "license": "MIT"
+     },
++    "node_modules/tr46": {
++      "version": "5.1.1",
++      "resolved": "https://registry.npmjs.org/tr46/-/tr46-5.1.1.tgz",
++      "integrity": "sha512-hdF5ZgjTqgAntKkklYw0R03MG2x/bSzTtkxmIRw/sTNV8YXsCJ1tfLAX23lhxhHJlEf3CRCOCGGWw3vI3GaSPw==",
++      "license": "MIT",
++      "dependencies": {
++        "punycode": "^2.3.1"
++      },
++      "engines": {
++        "node": ">=18"
++      }
++    },
+     "node_modules/tslib": {
+       "version": "2.8.1",
+       "resolved": "https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz",
+@@ -3560,6 +3686,28 @@
+         "d3-timer": "^3.0.1"
+       }
+     },
++    "node_modules/webidl-conversions": {
++      "version": "7.0.0",
++      "resolved": "https://registry.npmjs.org/webidl-conversions/-/webidl-conversions-7.0.0.tgz",
++      "integrity": "sha512-VwddBukDzu71offAQR975unBIGqfKZpM+8ZX6ySk8nYhVoo5CYaZyzt3YBvYtRtO+aoGlqxPg/B87NGVZ/fu6g==",
++      "license": "BSD-2-Clause",
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/whatwg-url": {
++      "version": "14.2.0",
++      "resolved": "https://registry.npmjs.org/whatwg-url/-/whatwg-url-14.2.0.tgz",
++      "integrity": "sha512-De72GdQZzNTUBBChsXueQUnPKDkg/5A5zp7pFDuQAj5UFoENpiACU0wlCvzpAGnTkj++ihpKwKyYewn/XNUbKw==",
++      "license": "MIT",
++      "dependencies": {
++        "tr46": "^5.1.0",
++        "webidl-conversions": "^7.0.0"
++      },
++      "engines": {
++        "node": ">=18"
++      }
++    },
+     "node_modules/yallist": {
+       "version": "5.0.0",
+       "resolved": "https://registry.npmjs.org/yallist/-/yallist-5.0.0.tgz",
+diff --git a/package.json b/package.json
+index d60a74fa..61eed087 100644
+--- a/package.json
++++ b/package.json
+@@ -47,6 +47,7 @@
+     "geist": "^1.3.1",
+     "input-otp": "1.4.1",
+     "lucide-react": "^0.454.0",
++    "mongodb": "^6.20.0",
+     "next": "14.2.16",
+     "next-themes": "^0.4.6",
+     "react": "^18",
+@@ -71,4 +72,4 @@
+     "tw-animate-css": "1.3.3",
+     "typescript": "^5"
+   }
+-}
+\ No newline at end of file
++}

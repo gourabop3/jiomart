@@ -43,13 +43,25 @@ export default function AdminPage() {
   const loadData = () => {
     const allOrders = OrderStorage.getAllOrders()
     const orderStats = OrderStorage.getOrderStats()
-    const allCoupons = CouponStorage.getAllCoupons()
-    const couponStatistics = CouponStorage.getCouponStats()
-
     setOrders(allOrders.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()))
     setStats(orderStats)
-    setCoupons(allCoupons.sort((a, b) => b.addedAt.getTime() - a.addedAt.getTime()))
-    setCouponStats(couponStatistics)
+
+    fetch("/api/coupons")
+      .then((r) => r.json())
+      .then((items) => {
+        const mapped: CouponInventory[] = items.map((d: any) => ({
+          id: d.id,
+          code: d.code,
+          isUsed: d.isUsed,
+          addedAt: new Date(d.addedAt),
+          usedAt: d.usedAt ? new Date(d.usedAt) : undefined,
+          orderId: d.orderId,
+        }))
+        setCoupons(mapped)
+      })
+    fetch("/api/coupons/stats")
+      .then((r) => r.json())
+      .then((s) => setCouponStats({ total: s.total || 0, available: s.available || 0, used: s.used || 0 }))
   }
 
   const handleLogin = (e: React.FormEvent) => {
@@ -79,7 +91,11 @@ export default function AdminPage() {
   const verifyPayment = (orderId: string) => {
     const order = orders.find((o) => o.id === orderId)
     if (order) {
-      CouponStorage.markCouponsAsUsed(order.couponCodes, orderId)
+      fetch("/api/coupons/mark-used", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codes: order.couponCodes, orderId }),
+      })
     }
     OrderStorage.updateOrderStatus(orderId, "verified", true)
     loadData()
@@ -107,15 +123,19 @@ export default function AdminPage() {
       .filter((code) => code.length > 0)
 
     if (couponCodes.length > 0) {
-      CouponStorage.addCoupons(couponCodes)
-      setNewCoupons("")
-      loadData()
+      fetch("/api/coupons", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codes: couponCodes }),
+      }).then(() => {
+        setNewCoupons("")
+        loadData()
+      })
     }
   }
 
   const deleteCoupon = (couponId: string) => {
-    CouponStorage.deleteCoupon(couponId)
-    loadData()
+    fetch(`/api/coupons/${couponId}`, { method: "DELETE" }).then(() => loadData())
   }
 
   if (!isAuthenticated) {

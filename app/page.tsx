@@ -46,9 +46,14 @@ export default function JioMartCoupon() {
   }, [currentOrderId, showPending])
 
   useEffect(() => {
-    const updateStock = () => {
-      const stats = CouponStorage.getCouponStats()
-      setAvailableStock(stats.available)
+    const updateStock = async () => {
+      try {
+        const r = await fetch("/api/coupons/stats", { cache: "no-store" })
+        const s = await r.json()
+        setAvailableStock(s.available || 0)
+      } catch {
+        // ignore
+      }
     }
     updateStock()
     const interval = setInterval(updateStock, 3000)
