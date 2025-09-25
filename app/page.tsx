@@ -48,12 +48,24 @@ export default function JioMartCoupon() {
               const r2 = await fetch(`/api/coupons/by-order/${currentOrderId}`, { cache: "no-store" })
               const d2 = await r2.json()
               const codes = Array.isArray(d2?.codes) && d2.codes.length ? d2.codes : (order.couponCodes || [])
-              setGeneratedCoupons(codes)
+              if (codes.length > 0) {
+                setGeneratedCoupons(codes)
+                setShowPending(false)
+                setShowCoupons(true)
+              } else {
+                // keep polling until codes are attached
+                return
+              }
             } catch {
-              setGeneratedCoupons(order.couponCodes || [])
+              const codes = order.couponCodes || []
+              if (codes.length > 0) {
+                setGeneratedCoupons(codes)
+                setShowPending(false)
+                setShowCoupons(true)
+              } else {
+                return
+              }
             }
-            setShowPending(false)
-            setShowCoupons(true)
           } else if (order?.status === "rejected") {
             alert("Your payment was rejected. Please contact support or try again with correct payment details.")
             handleStartOver()
