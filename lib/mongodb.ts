@@ -45,3 +45,17 @@ export type CouponDoc = {
   usedAt?: Date
   orderId?: string
 }
+
+export type OrderDoc = {
+  _id?: any
+  fullName: string
+  email: string
+  utrNumber: string
+  quantity: number
+  totalAmount: number
+  couponCodes: string[]
+  paymentProof?: string
+  timestamp: Date
+  paymentVerified: boolean
+  status: "pending" | "verified" | "rejected"
+}
