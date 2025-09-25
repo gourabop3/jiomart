@@ -153,7 +153,7 @@ export default function AdminPage() {
                 <br />
                 Username: admin
                 <br />
-                Password: admin123
+                Password: gourabxellipse
               </p>
             </div>
           </CardContent>
