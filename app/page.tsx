@@ -47,7 +47,8 @@ export default function JioMartCoupon() {
             try {
               const r2 = await fetch(`/api/coupons/by-order/${currentOrderId}`, { cache: "no-store" })
               const d2 = await r2.json()
-              setGeneratedCoupons(Array.isArray(d2?.codes) ? d2.codes : order.couponCodes || [])
+              const codes = Array.isArray(d2?.codes) && d2.codes.length ? d2.codes : (order.couponCodes || [])
+              setGeneratedCoupons(codes)
             } catch {
               setGeneratedCoupons(order.couponCodes || [])
             }

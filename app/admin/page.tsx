@@ -122,7 +122,7 @@ export default function AdminPage() {
       await fetch(`/api/orders/${orderId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "verified", paymentVerified: true }),
+        body: JSON.stringify({ status: "verified", paymentVerified: true, couponCodes: order.couponCodes }),
       })
     }
     loadData()
